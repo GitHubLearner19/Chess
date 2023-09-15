@@ -73,7 +73,9 @@ void print_bitboard(uint64_t bitboard) {
     }
 }
 
-enum direction {
+typedef enum enumDirection enumDirection;
+
+enum enumDirection {
     Nort, NoEa, East, SoEa, Sout, SoWe, West, NoWe
 };
 
@@ -238,7 +240,7 @@ void setup_piece_attacks() {
 }
 
 // get ray attacks in positive direction on occupied board
-uint64_t get_positive_ray_attacks(uint64_t occupied, int square, enum direction dir) {
+uint64_t get_positive_ray_attacks(uint64_t occupied, int square, enumDirection dir) {
     uint64_t attacks = rayAttacks[square][dir];
     uint64_t blockers = attacks & occupied;
     if (blockers) {
@@ -248,7 +250,7 @@ uint64_t get_positive_ray_attacks(uint64_t occupied, int square, enum direction 
 }
 
 // get ray attacks in negative direction on occupied board
-uint64_t get_negative_ray_attacks(uint64_t occupied, int square, enum direction dir) {
+uint64_t get_negative_ray_attacks(uint64_t occupied, int square, enumDirection dir) {
     uint64_t attacks = rayAttacks[square][dir];
     uint64_t blockers = attacks & occupied;
     if (blockers) {
@@ -579,6 +581,30 @@ uint64_t get_attacked_squares(chessboard* board, uint64_t occupied, uint64_t* di
     return attacked;
 }
 
+// get moves for pinned piece along diagonal and update 'allPinnedPieces'
+shortlist* get_pinned_diagonal_moves(chessboard* board, enumDirection dir, uint64_t* directionalAttacks, uint64_t opponentPieces, uint64_t kingBishopMoves, int kingSquare, uint64_t* allPinnedPieces) {
+    uint64_t pinnedPiece = kingBishopMoves & rayAttacks[kingSquare][dir] & directionalAttacks[(dir + 4) % 8];
+    if (popCount(pinnedPiece) == 1) {
+        *allPinnedPieces |= pinnedPiece;
+        if (pinnedPiece & (board->turn == White ? board->blackBishops | board->blackQueens : board->whiteBishops | board->whiteQueens)) {
+            return get_moves_from_uint64(bitscan_forward(pinnedPiece), kingBishopMoves & rayAttacks[kingSquare][dir], opponentPieces);
+        }
+    }
+    return NULL;
+}
+
+// get moves for pinned piece along file/rank and update 'allPinnedPieces'
+shortlist* get_pinned_straight_moves(chessboard* board, enumDirection dir, uint64_t* directionalAttacks, uint64_t opponentPieces, uint64_t kingRookMoves, int kingSquare, uint64_t* allPinnedPieces) {
+    uint64_t pinnedPiece = kingRookMoves & rayAttacks[kingSquare][dir] & directionalAttacks[(dir + 4) % 8];
+    if (popCount(pinnedPiece) == 1) {
+        *allPinnedPieces |= pinnedPiece;
+        if (pinnedPiece & (board->turn == White ? board->blackRooks | board->blackQueens : board->whiteRooks | board->whiteQueens)) {
+            return get_moves_from_uint64(bitscan_forward(pinnedPiece), kingRookMoves & rayAttacks[kingSquare][dir], opponentPieces);
+        }
+    }
+    return NULL;
+}
+
 shortlist* get_all_moves(chessboard* board) {
     shortlist* moves = (shortlist*) malloc(sizeof(shortlist));
 
@@ -660,14 +686,16 @@ shortlist* get_all_moves(chessboard* board) {
     // 3. get moves for pinned pieces
 
     uint64_t allPinnedPieces = 0;
-    uint64_t pinnedPiece;
-    int pinnedPieceSquare;
 
-    pinnedPiece = kingBishopMoves & emptyBishopAttacks[NoEa] & directionalAttacks[SoWe];
-    if (pinnedPiece & (board->turn == White ? board->blackBishops : board->whiteBishops)) {
-        get_moves_from_uint64(bitscan_forward(pinnedPiece), kingBishopMoves & emptyBishopAttacks[NoEa], opponentPieces);
-    }
-
+    get_pinned_diagonal_moves(board, NoEa, directionalAttacks, opponentPieces, kingBishopMoves, kingSquare, &allPinnedPieces);
+    get_pinned_diagonal_moves(board, SoEa, directionalAttacks, opponentPieces, kingBishopMoves, kingSquare, &allPinnedPieces);
+    get_pinned_diagonal_moves(board, SoWe, directionalAttacks, opponentPieces, kingBishopMoves, kingSquare, &allPinnedPieces);
+    get_pinned_diagonal_moves(board, NoWe, directionalAttacks, opponentPieces, kingBishopMoves, kingSquare, &allPinnedPieces);
+    get_pinned_straight_moves(board, Nort, directionalAttacks, opponentPieces, kingRookMoves, kingSquare, &allPinnedPieces);
+    get_pinned_straight_moves(board, East, directionalAttacks, opponentPieces, kingRookMoves, kingSquare, &allPinnedPieces);
+    get_pinned_straight_moves(board, Sout, directionalAttacks, opponentPieces, kingRookMoves, kingSquare, &allPinnedPieces);
+    get_pinned_straight_moves(board, West, directionalAttacks, opponentPieces, kingRookMoves, kingSquare, &allPinnedPieces);
+    
     // 4. get moves for all other pieces
     
     return moves;
