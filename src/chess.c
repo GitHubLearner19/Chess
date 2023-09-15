@@ -647,7 +647,7 @@ shortlist* get_all_moves(chessboard* board) {
         } else if (rookCheckers > 0) {
             pushMask = emptyRookAttacks[bitscan_forward(rookCheckers)] & kingRookMoves;
         } else if (queenCheckers > 0) {
-            if ((emptyBishopAttacks[kingSquare] & queenCheckers) > 0) {
+            if (emptyBishopAttacks[kingSquare] & queenCheckers) {
                 pushMask = emptyBishopAttacks[bitscan_forward(queenCheckers)] & kingBishopMoves;
             } else {
                 pushMask = emptyRookAttacks[bitscan_forward(queenCheckers)] & kingRookMoves;
@@ -664,9 +664,8 @@ shortlist* get_all_moves(chessboard* board) {
     int pinnedPieceSquare;
 
     pinnedPiece = kingBishopMoves & emptyBishopAttacks[NoEa] & directionalAttacks[SoWe];
-    pinnedPieceSquare = bitscan_forward(pinnedPiece);
-    if (pinnedPieceSquare > 0 && (((board->turn == White ? board->blackBishops : board->whiteBishops) << pinnedPieceSquare) & 1)) {
-        get_moves_from_uint64(pinnedPieceSquare, kingBishopMoves & emptyBishopAttacks[NoEa], opponentPieces);
+    if (pinnedPiece & (board->turn == White ? board->blackBishops : board->whiteBishops)) {
+        get_moves_from_uint64(bitscan_forward(pinnedPiece), kingBishopMoves & emptyBishopAttacks[NoEa], opponentPieces);
     }
 
     // 4. get moves for all other pieces
