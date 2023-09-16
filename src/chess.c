@@ -52,23 +52,10 @@ struct board {
     uint64_t whitePawns;
     uint64_t blackPawns;
     pieceColor turn;
-    short castleLeft;
-    short castleRight;
+    short castleLeft[2];
+    short castleRight[2];
     int epSquare;
     shortlist* move_log;
-};
-
-typedef enum enumSquare enumSquare;
-
-enum enumSquare {
-    a1, b1, c1, d1, e1, f1, g1, h1,
-    a2, b2, c2, d2, e2, f2, g2, h2,
-    a3, b3, c3, d3, e3, f3, g3, h3,
-    a4, b4, c4, d4, e4, f4, g4, h4,
-    a5, b5, c5, d5, e5, f5, g5, h5,
-    a6, b6, c6, d6, e6, f6, g6, h6,
-    a7, b7, c7, d7, e7, f7, g7, h7,
-    a8, b8, c8, d8, e8, f8, g8, h8
 };
 
 void print_bitboard(uint64_t bitboard) {
@@ -83,6 +70,121 @@ void print_bitboard(uint64_t bitboard) {
         putchar('\n');
     }
 }
+
+// get a new chess board from fen
+chessboard new_board(char* fen) {
+    chessboard board;
+    board.whiteKing = 0LL;
+    board.blackKing = 0LL;
+    board.whiteBishops = 0LL;
+    board.blackBishops = 0LL;
+    board.whiteRooks = 0LL;
+    board.blackRooks = 0LL;
+    board.whiteQueens = 0LL;
+    board.blackQueens = 0LL;
+    board.whiteKnights = 0LL;
+    board.blackKnights = 0LL;
+    board.whitePawns = 0LL;
+    board.blackPawns = 0LL;
+    int row = 7; 
+    int col = 0;
+    int i = 0;
+    while (fen[i] != ' ') {
+        if (fen[i] == '/') {
+            row --;
+            col = 0;
+        } else if (fen[i] > '0' && fen[i] < '9') {
+            col += fen[i] - '0';
+        } else {
+            uint64_t square = 1LL << (row * 8 + col);
+            switch (fen[i]) {
+                case 'P':
+                    board.whitePawns |= square;
+                    break;
+                case 'p':
+                    board.blackPawns |= square;
+                    break;
+                case 'R':
+                    board.whiteRooks |= square;
+                    break;
+                case 'r':
+                    board.blackRooks |= square;
+                    break;
+                case 'B':
+                    board.whiteBishops |= square;
+                    break;
+                case 'b':
+                    board.blackBishops |= square;
+                    break;
+                case 'N':
+                    board.whiteKnights |= square;
+                    break;
+                case 'n':
+                    board.blackKnights |= square;
+                    break;
+                case 'Q':
+                    board.whiteQueens |= square;
+                    break;
+                case 'q':
+                    board.blackQueens |= square;
+                    break;
+                case 'K':
+                    board.whiteKing |= square;
+                    break;
+                case 'k':
+                    board.blackKing |= square;
+            }
+            col ++;
+        }
+        i ++;
+    }
+
+    board.turn = fen[++i] == 'w' ? White : Black;
+
+    return board;
+}
+
+// get piece at square on chess board
+char get_board_piece(chessboard* board, int square) {
+    uint64_t allPieces[12] = {
+        board->blackPawns, board->whitePawns,
+        board->blackBishops, board->whiteBishops,
+        board->blackKnights, board->whiteKnights,
+        board->blackRooks, board->whiteRooks,
+        board->blackQueens, board->whiteQueens,
+        board->blackKing, board->whiteKing
+    };
+    uint64_t pieceTypes[12] = {'p', 'P', 'b', 'B', 'n', 'N', 'r', 'R', 'q', 'Q', 'k', 'K'};
+    for (int i = 0; i < 12; i ++) {
+        if ((allPieces[i] >> square) & 1) {
+            return pieceTypes[i];
+        }
+    }
+    return '.';
+}
+
+// print chess board
+void print_board(chessboard* board) {
+    for (int row = 7; row >= 0; row --) {
+        for (int col = 0; col < 8; col ++) {
+            putchar(get_board_piece(board, row * 8 + col));
+        }
+        putchar('\n');
+    }
+}
+
+typedef enum enumSquare enumSquare;
+
+enum enumSquare {
+    a1, b1, c1, d1, e1, f1, g1, h1,
+    a2, b2, c2, d2, e2, f2, g2, h2,
+    a3, b3, c3, d3, e3, f3, g3, h3,
+    a4, b4, c4, d4, e4, f4, g4, h4,
+    a5, b5, c5, d5, e5, f5, g5, h5,
+    a6, b6, c6, d6, e6, f6, g6, h6,
+    a7, b7, c7, d7, e7, f7, g7, h7,
+    a8, b8, c8, d8, e8, f8, g8, h8
+};
 
 typedef enum enumDirection enumDirection;
 
@@ -478,6 +580,10 @@ void setup_attack_table() {
 
 uint64_t* get_directional_attacks(uint64_t bishops, uint64_t rooks, uint64_t queens, uint64_t occupied) {
     uint64_t* attacks = (uint64_t*) malloc(sizeof(uint64_t) * 8);
+
+    for (int i = 0; i < 8; i ++) {
+        attacks[i] = 0LL;
+    }
     
     // bishop attacks
     int i = bitscan_forward(bishops);
@@ -487,7 +593,7 @@ uint64_t* get_directional_attacks(uint64_t bishops, uint64_t rooks, uint64_t que
         attacks[SoEa] |= bishopAttacks & rayAttacks[i][SoEa];
         attacks[SoWe] |= bishopAttacks & rayAttacks[i][SoWe];
         attacks[NoWe] |= bishopAttacks & rayAttacks[i][NoWe];
-        bishops >>= i + 1;
+        bishops &= bishops - 1;
         i = bitscan_forward(bishops);
     }
 
@@ -499,7 +605,7 @@ uint64_t* get_directional_attacks(uint64_t bishops, uint64_t rooks, uint64_t que
         attacks[East] |= rookAttacks & rayAttacks[i][East];
         attacks[Sout] |= rookAttacks & rayAttacks[i][Sout];
         attacks[West] |= rookAttacks & rayAttacks[i][West];
-        rooks >>= i + 1;
+        rooks &= rooks - 1;
         i = bitscan_forward(rooks);
     }
 
@@ -515,7 +621,7 @@ uint64_t* get_directional_attacks(uint64_t bishops, uint64_t rooks, uint64_t que
         attacks[SoWe] |= queenAttacks & rayAttacks[i][SoWe];
         attacks[West] |= queenAttacks & rayAttacks[i][West];
         attacks[NoWe] |= queenAttacks & rayAttacks[i][NoWe];
-        queens >>= i + 1;
+        queens &= queens - 1;
         i = bitscan_forward(queens);
     }
 
@@ -527,7 +633,7 @@ uint64_t get_all_knight_attacks(uint64_t knights) {
     int i = bitscan_forward(knights);
     while (i != 0) {
         attacks |= knightAttacks[i];
-        knights >>= i + 1;
+        knights &= knights - 1;
         i = bitscan_forward(knights);
     }
     return attacks;
@@ -538,7 +644,7 @@ uint64_t get_all_pawn_attacks(uint64_t pawns, pieceColor side) {
     int i = bitscan_forward(pawns);
     while (i != 0) {
         attacks |= pawnAttacks[i][side];
-        pawns >>= i + 1;
+        pawns &= pawns - 1;
         i = bitscan_forward(pawns);
     }
     return attacks;
@@ -549,8 +655,9 @@ uint64_t get_king_attacks(uint64_t king) {
 }
 
 // get list of moves from bitboard of attacks
-shortlist* get_moves_from_uint64(int start, uint64_t end, uint64_t opponentPieces) {
+shortlist* get_moves_from_uint64(int start, uint64_t end, uint64_t friendlyPieces, uint64_t opponentPieces) {
     shortlist* moves = NULL;
+    end &= ~friendlyPieces;
     int i = bitscan_forward(end); // square of set bit
     shortlist* tail;
 
@@ -563,6 +670,7 @@ shortlist* get_moves_from_uint64(int start, uint64_t end, uint64_t opponentPiece
             moves = item; // first item
         }
         tail = item;
+        end &= end - 1;
         i = bitscan_forward(end);
     }
 
@@ -570,69 +678,69 @@ shortlist* get_moves_from_uint64(int start, uint64_t end, uint64_t opponentPiece
 }
 
 // get the squares attacked by opponent and get directional attacks
-uint64_t get_attacked_squares(chessboard* board, uint64_t occupied, uint64_t* directionalAttacks) {
-    uint64_t attacked = 0; // all squares attacked by opponent
+uint64_t get_attacked_squares(chessboard* board, uint64_t occupied, uint64_t** directionalAttacks) {
+    uint64_t attacked = 0LL; // all squares attacked by opponent
 
     if (board->turn == White) {
-        directionalAttacks = get_directional_attacks(board->blackBishops, board->blackRooks, board->blackQueens, occupied);
+        *directionalAttacks = get_directional_attacks(board->blackBishops, board->blackRooks, board->blackQueens, occupied);
         attacked |= get_all_knight_attacks(board->blackKnights);
         attacked |= get_all_pawn_attacks(board->blackPawns, Black);
         attacked |= get_king_attacks(board->blackKing);
     } else {
-        directionalAttacks = get_directional_attacks(board->whiteBishops, board->whiteRooks, board->whiteQueens, occupied);
+        *directionalAttacks = get_directional_attacks(board->whiteBishops, board->whiteRooks, board->whiteQueens, occupied);
         attacked |= get_all_knight_attacks(board->whiteKnights);
         attacked |= get_all_pawn_attacks(board->whitePawns, Black);
         attacked |= get_king_attacks(board->whiteKing);
     }
 
     for (int i = 0; i < 8; i ++) {
-        attacked |= directionalAttacks[i];
+        attacked |= (*directionalAttacks)[i];
     }
 
     return attacked;
 }
 
 // get moves for pinned piece along diagonal and update 'allPinnedPieces'
-shortlist* get_pinned_diagonal_moves(chessboard* board, enumDirection dir, uint64_t* directionalAttacks, uint64_t opponentPieces, uint64_t kingBishopMoves, int kingSquare, uint64_t* allPinnedPieces) {
+shortlist* get_pinned_diagonal_moves(chessboard* board, enumDirection dir, uint64_t* directionalAttacks, uint64_t kingBishopMoves, int kingSquare, uint64_t friendlyPieces, uint64_t opponentPieces, uint64_t* allPinnedPieces) {
     uint64_t pinnedPiece = kingBishopMoves & rayAttacks[kingSquare][dir] & directionalAttacks[(dir + 4) % 8];
     if (popCount(pinnedPiece) == 1) {
         *allPinnedPieces |= pinnedPiece;
         if (pinnedPiece & (board->turn == White ? board->blackBishops | board->blackQueens : board->whiteBishops | board->whiteQueens)) {
-            return get_moves_from_uint64(bitscan_forward(pinnedPiece), kingBishopMoves & rayAttacks[kingSquare][dir], opponentPieces);
+            return get_moves_from_uint64(bitscan_forward(pinnedPiece), kingBishopMoves & rayAttacks[kingSquare][dir], friendlyPieces, opponentPieces);
         }
     }
     return NULL;
 }
 
 // get moves for pinned piece along file/rank and update 'allPinnedPieces'
-shortlist* get_pinned_straight_moves(chessboard* board, enumDirection dir, uint64_t* directionalAttacks, uint64_t opponentPieces, uint64_t kingRookMoves, int kingSquare, uint64_t* allPinnedPieces) {
+shortlist* get_pinned_straight_moves(chessboard* board, enumDirection dir, uint64_t* directionalAttacks, uint64_t kingRookMoves, int kingSquare, uint64_t friendlyPieces, uint64_t opponentPieces, uint64_t* allPinnedPieces) {
     uint64_t pinnedPiece = kingRookMoves & rayAttacks[kingSquare][dir] & directionalAttacks[(dir + 4) % 8];
     if (popCount(pinnedPiece) == 1) {
         *allPinnedPieces |= pinnedPiece;
         if (pinnedPiece & (board->turn == White ? board->blackRooks | board->blackQueens : board->whiteRooks | board->whiteQueens)) {
-            return get_moves_from_uint64(bitscan_forward(pinnedPiece), kingRookMoves & rayAttacks[kingSquare][dir], opponentPieces);
+            return get_moves_from_uint64(bitscan_forward(pinnedPiece), kingRookMoves & rayAttacks[kingSquare][dir], friendlyPieces, opponentPieces);
         }
     }
     return NULL;
 }
 
 // add new moves to moves list and update tail
-void append_moves(shortlist *newMoves, shortlist* moves, shortlist* tail) {
+void append_moves(shortlist *newMoves, shortlist** moves, shortlist** tail) {
     if (newMoves) {
-        if (moves) {
-            tail->next = newMoves;
-            tail = get_last_item(tail->next);
+        if (*moves) {
+            (*tail)->next = newMoves;
+            *tail = get_last_item((*tail)->next);
         } else {
-            moves = newMoves;
-            tail = newMoves;
+            *moves = newMoves;
+            *tail = get_last_item(newMoves);
         }
     }
 }
 
 shortlist* get_all_moves(chessboard* board) {
-    shortlist* moves;
-    shortlist* tail;
-
+    shortlist* moves = NULL;
+    shortlist* tail = NULL;
+    
     uint64_t whitePieces = board->whiteKing | board->whiteBishops | board->whiteRooks | board->whiteQueens | board->whiteKnights | board->whitePawns;
     uint64_t blackPieces = board->blackKing | board->blackBishops |
     board->blackRooks | board->blackQueens | board->blackKnights | board->blackPawns;
@@ -643,16 +751,16 @@ shortlist* get_all_moves(chessboard* board) {
     occupied &= board->turn == White ? ~board->whiteKing : ~board->blackKing; // remove king
 
     uint64_t* directionalAttacks; // attacks from each direction
-    uint64_t attacked = get_attacked_squares(board, occupied, directionalAttacks); // all attacked squares
+    uint64_t attacked = get_attacked_squares(board, occupied, &directionalAttacks); // all attacked squares
 
     int kingSquare = bitscan_forward(board->turn == White ? board->whiteKing : board->blackKing); // square of king
    
     // 1. get king moves
-
-    append_moves(get_moves_from_uint64(kingSquare, kingAttacks[kingSquare] & ~attacked, opponentPieces), moves, tail);
+    
+    append_moves(get_moves_from_uint64(kingSquare, kingAttacks[kingSquare] & ~attacked, friendlyPieces, opponentPieces), &moves, &tail);
 
     occupied |= board->turn == White ? board->whiteKing : board->blackKing; // add king back in
-
+    
     // 2. handle check
 
     uint64_t checkers; // squares of all checking pieces
@@ -709,61 +817,59 @@ shortlist* get_all_moves(chessboard* board) {
     }
 
     // 3. get moves for pinned pieces
-
+    
     uint64_t allPinnedPieces = 0;
 
     for (int i = 1; i < 8; i += 2) {
-        shortlist* pinnedMoves = get_pinned_diagonal_moves(board, i, directionalAttacks, opponentPieces, kingBishopMoves, kingSquare, 
-        &allPinnedPieces);
-        append_moves(pinnedMoves, moves, tail);
-    }
-
-    for (int i = 0; i < 8; i += 2) {
-        shortlist* pinnedMoves = get_pinned_straight_moves(board, i, directionalAttacks, opponentPieces, kingRookMoves, kingSquare, 
-        &allPinnedPieces);
-        append_moves(pinnedMoves, moves, tail);
+        shortlist* pinnedMoves = get_pinned_diagonal_moves(board, i, directionalAttacks, kingBishopMoves, kingSquare, friendlyPieces, opponentPieces, &allPinnedPieces);
+        append_moves(pinnedMoves, &moves, &tail);
     }
     
-    // 4. get moves for all other pieces
+    for (int i = 0; i < 8; i += 2) {
+        shortlist* pinnedMoves = get_pinned_straight_moves(board, i, directionalAttacks, kingRookMoves, kingSquare, friendlyPieces, opponentPieces, &allPinnedPieces);
+        append_moves(pinnedMoves, &moves, &tail);
+    }
 
+    // 4. get moves for all other pieces
+    
     int friendlyBishops, friendlyRooks, friendlyQueens, friendlyKnights, friendlyPawns;
 
     friendlyBishops = board->turn == White ? board->whiteBishops : board->blackBishops;
     int i = bitscan_forward(friendlyBishops);
     while (i != 0) {
-        shortlist* bishopMoves = get_moves_from_uint64(i, get_bishop_attacks_magic(occupied, i), opponentPieces);
-        append_moves(bishopMoves, moves, tail);
-        friendlyBishops >>= i + 1;
+        shortlist* bishopMoves = get_moves_from_uint64(i, get_bishop_attacks_magic(occupied, i), friendlyPieces, opponentPieces);
+        append_moves(bishopMoves, &moves, &tail);
+        friendlyBishops &= friendlyBishops - 1;
         i = bitscan_forward(friendlyBishops);
     }
 
     friendlyRooks = board->turn == White ? board->whiteRooks : board->blackRooks;
     i = bitscan_forward(friendlyRooks);
     while (i != 0) {
-        shortlist* rookMoves = get_moves_from_uint64(i, get_rook_attacks_magic(occupied, i), opponentPieces);
-        append_moves(rookMoves, moves, tail);
-        friendlyRooks >>= i + 1;
+        shortlist* rookMoves = get_moves_from_uint64(i, get_rook_attacks_magic(occupied, i), friendlyPieces, opponentPieces);
+        append_moves(rookMoves, &moves, &tail);
+        friendlyRooks &= friendlyRooks - 1;
         i = bitscan_forward(friendlyRooks);
     }
 
     friendlyQueens = board->turn == White ? board->whiteQueens : board->blackQueens;
     i = bitscan_forward(friendlyQueens);
     while (i != 0) {
-        shortlist* queenMoves = get_moves_from_uint64(i, get_bishop_attacks_magic(occupied, i) | get_rook_attacks_magic(occupied, i), opponentPieces);
-        append_moves(queenMoves, moves, tail);
-        friendlyQueens >>= i + 1;
+        shortlist* queenMoves = get_moves_from_uint64(i, get_bishop_attacks_magic(occupied, i) | get_rook_attacks_magic(occupied, i), friendlyPieces, opponentPieces);
+        append_moves(queenMoves, &moves, &tail);
+        friendlyQueens &= friendlyQueens - 1;
         i = bitscan_forward(friendlyQueens);
     }
 
     friendlyKnights = board->turn == White ? board->whiteKnights : board->blackKnights;
     i = bitscan_forward(friendlyKnights);
     while (i != 0) {
-        shortlist* knightMoves = get_moves_from_uint64(i, knightAttacks[i], opponentPieces);
-        append_moves(knightMoves, moves, tail);
-        friendlyKnights >>= i + 1;
+        shortlist* knightMoves = get_moves_from_uint64(i, knightAttacks[i], friendlyPieces, opponentPieces);
+        append_moves(knightMoves, &moves, &tail);
+        friendlyKnights &= friendlyKnights - 1;
         i = bitscan_forward(friendlyKnights);
     }
-    
+
     return moves;
 }
 
@@ -778,12 +884,9 @@ int setup() {
 
 int main(int argc, char* argv[]) {
     setup();
-    enumSquare square = d4;
-    uint64_t occupied = 0x000F000000FF0000LL;
-    print_bitboard(occupied);
-    printf("\n");
-    print_bitboard(get_rook_attacks_magic(occupied, square));
-    printf("\n");
-    print_bitboard(get_rook_attacks_classical(occupied, square));
+    chessboard board = new_board("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    print_board(&board);
+    shortlist* moves = get_all_moves(&board);
+    printf("%d", moves->val);
     return 0;
 }
