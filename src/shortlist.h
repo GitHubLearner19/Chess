@@ -14,7 +14,13 @@ shortlist* cons(int first, shortlist* rest);
 // get last item of shortlist
 shortlist* get_last_item(shortlist* l);
 
+// get length of list
+int get_list_length(shortlist* l);
+
 // append list to end of another list and update tail
-void append_list(shortlist *newList, shortlist** listPtr, shortlist** tailPtr);
+void append_list(shortlist* newList, shortlist** listPtr, shortlist** tailPtr);
+
+// free list and convert to array
+short* list_to_arr(shortlist* l, int* lenPtr);
 
 #endif

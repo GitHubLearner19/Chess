@@ -22,7 +22,7 @@ shortlist* get_last_item(shortlist* l) {
 }
 
 // append list to end of another list and update tail
-void append_list(shortlist *newList, shortlist** listPtr, shortlist** tailPtr) {
+void append_list(shortlist* newList, shortlist** listPtr, shortlist** tailPtr) {
     if (newList) {
         if (*listPtr) {
             (*tailPtr)->next = newList;
@@ -32,4 +32,38 @@ void append_list(shortlist *newList, shortlist** listPtr, shortlist** tailPtr) {
             *tailPtr = get_last_item(newList);
         }
     }
+}
+
+// get length of list
+int get_list_length(shortlist* l) {
+    if (!l) {
+        return 0;
+    }
+    int i = 1;
+    shortlist* tail = l;
+    while (tail->next) {
+        tail = tail->next;
+        i ++;
+    }
+    return i;
+}
+
+// free list and convert to array
+short* list_to_arr(shortlist* l, int* lenPtr) {
+    if (!l) {
+        *lenPtr = 0;
+        return NULL;
+    }
+    *lenPtr = get_list_length(l);
+    short* result = (short*) malloc(sizeof(short) * *lenPtr);
+    int i = 0;
+    shortlist* tail = l;
+    while (tail) {
+        result[i] = tail->val;
+        i ++;
+        shortlist* temp = tail;
+        tail = tail->next;
+        free(temp);
+    }
+    return result;
 }
