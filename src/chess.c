@@ -177,7 +177,6 @@ uint64_t emptyQueenAttacks[64];
 // attacks for non-sliding pieces from each square
 uint64_t knightAttacks[64];
 uint64_t pawnAttacks[64][2];
-uint64_t pawnPushes[64][2];
 uint64_t kingAttacks[64];
 
 // shift bitboard east one
@@ -300,19 +299,6 @@ void setup_piece_attacks() {
         uint64_t west = west_one(1LL << i);
         pawnAttacks[i][White] = (east | west) << 8;
         pawnAttacks[i][Black] = (east | west) >> 8;
-    }
-
-    for (int i = 8; i < 56; i ++) {
-        pawnPushes[i][White] = 1LL << (i + 8);
-        pawnPushes[i][Black] = 1LL << (i - 8);
-    }
-
-    for (int i = 8; i < 16; i ++) {
-        pawnPushes[i][White] |= 1LL << (i + 16);
-    }
-
-    for (int i = 48; i < 56; i ++) {
-        pawnPushes[i][Black] |= 1LL << (i - 16);
     }
 
     for (int i = 0; i < 64; i ++) {
@@ -715,12 +701,12 @@ shortlist* get_pinned_straight_moves(chessboard* board, enumDirection dir, uint6
     return NULL;
 }
 
-shortlist* get_all_bishop_moves(uint64_t bishops, uint64_t occupied, uint64_t friendlyPieces, uint64_t opponentPieces) {
+shortlist* get_all_bishop_moves(uint64_t bishops, uint64_t occupied, uint64_t friendlyPieces, uint64_t opponentPieces, uint64_t mask) {
     shortlist* result = NULL;
     shortlist* tail = NULL;
     int i = bitscan_forward(bishops);
     while (i != 0) {
-        shortlist* bishopMoves = get_moves_from_uint64(i, get_bishop_attacks_magic(occupied, i), friendlyPieces, opponentPieces);
+        shortlist* bishopMoves = get_moves_from_uint64(i, get_bishop_attacks_magic(occupied, i) & mask, friendlyPieces, opponentPieces);
         append_list(bishopMoves, &result, &tail);
         bishops &= bishops - 1;
         i = bitscan_forward(bishops);
@@ -728,12 +714,12 @@ shortlist* get_all_bishop_moves(uint64_t bishops, uint64_t occupied, uint64_t fr
     return result;
 }
 
-shortlist* get_all_rook_moves(uint64_t rooks, uint64_t occupied, uint64_t friendlyPieces, uint64_t opponentPieces) {
+shortlist* get_all_rook_moves(uint64_t rooks, uint64_t occupied, uint64_t friendlyPieces, uint64_t opponentPieces, uint64_t mask) {
     shortlist* result = NULL;
     shortlist* tail = NULL;
     int i = bitscan_forward(rooks);
     while (i != 0) {
-        shortlist* rookMoves = get_moves_from_uint64(i, get_rook_attacks_magic(occupied, i), friendlyPieces, opponentPieces);
+        shortlist* rookMoves = get_moves_from_uint64(i, get_rook_attacks_magic(occupied, i) & mask, friendlyPieces, opponentPieces);
         append_list(rookMoves, &result, &tail);
         rooks &= rooks - 1;
         i = bitscan_forward(rooks);
@@ -741,12 +727,12 @@ shortlist* get_all_rook_moves(uint64_t rooks, uint64_t occupied, uint64_t friend
     return result;
 }
 
-shortlist* get_all_queen_moves(uint64_t queens, uint64_t occupied, uint64_t friendlyPieces, uint64_t opponentPieces) {
+shortlist* get_all_queen_moves(uint64_t queens, uint64_t occupied, uint64_t friendlyPieces, uint64_t opponentPieces, uint64_t mask) {
     shortlist* result = NULL;
     shortlist* tail = NULL;
     int i = bitscan_forward(queens);
     while (i != 0) {
-        shortlist* queenMoves = get_moves_from_uint64(i, get_bishop_attacks_magic(occupied, i) | get_rook_attacks_magic(occupied, i), friendlyPieces, opponentPieces);
+        shortlist* queenMoves = get_moves_from_uint64(i, (get_bishop_attacks_magic(occupied, i) | get_rook_attacks_magic(occupied, i)) & mask, friendlyPieces, opponentPieces);
         append_list(queenMoves, &result, &tail);
         queens &= queens - 1;
         i = bitscan_forward(queens);
@@ -754,15 +740,71 @@ shortlist* get_all_queen_moves(uint64_t queens, uint64_t occupied, uint64_t frie
     return result;
 }
 
-shortlist* get_all_knight_moves(uint64_t knights, uint64_t occupied, uint64_t friendlyPieces, uint64_t opponentPieces) {
+shortlist* get_all_knight_moves(uint64_t knights, uint64_t occupied, uint64_t friendlyPieces, uint64_t opponentPieces, uint64_t mask) {
     shortlist* result = NULL;
     shortlist* tail = NULL;
     int i = bitscan_forward(knights);
     while (i != 0) {
-        shortlist* knightMoves = get_moves_from_uint64(i, knightAttacks[i], friendlyPieces, opponentPieces);
+        shortlist* knightMoves = get_moves_from_uint64(i, knightAttacks[i] & mask, friendlyPieces, opponentPieces);
         append_list(knightMoves, &result, &tail);
         knights &= knights - 1;
         i = bitscan_forward(knights);
+    }
+    return result;
+}
+
+uint64_t get_pawn_pushes(uint64_t occupied, int square, pieceColor turn) {
+    uint64_t push;
+    if (turn == White) {
+        push = (1 << (square + 8)) & ~occupied;
+        if (square >= 8 && square < 16) {
+            push |= (push << 8);
+        }
+    } else {
+        push = (1 << (square - 8)) & ~occupied;
+        if (square >= 48 && square < 56) {
+            push |= (push >> 8);
+        }
+    }
+    return push;
+}
+
+shortlist* get_all_pawn_pushes(uint64_t pawns, uint64_t occupied, uint64_t friendlyPieces, uint64_t opponentPieces, uint64_t mask, pieceColor turn) {
+    shortlist* result = NULL;
+    shortlist* tail = NULL;
+    int i = bitscan_forward(pawns);
+    while (i != 0) {
+        shortlist* pawnMoves = get_moves_from_uint64(i, get_pawn_pushes(occupied, i, turn) & mask, friendlyPieces, opponentPieces);
+        append_list(pawnMoves, &result, &tail);
+        pawns &= pawns - 1;
+        i = bitscan_forward(pawns);
+    }
+    return result;
+}
+
+shortlist* get_all_pawn_captures(uint64_t pawns, uint64_t occupied, uint64_t friendlyPieces, uint64_t opponentPieces, uint64_t pushMask, uint64_t captureMask, pieceColor turn, int epSquare) {
+    shortlist* result = NULL;
+    shortlist* tail = NULL;
+
+    // normal captures
+    int i = bitscan_forward(pawns);
+    while (i != 0) {
+        shortlist* pawnMoves = get_moves_from_uint64(i, pawnAttacks[i][turn] & captureMask, ~opponentPieces, opponentPieces);
+        pawns &= pawns - 1;
+        i = bitscan_forward(pawns);
+    }
+
+    // en passant captures
+    if (epSquare > 0) {
+        uint64_t leftPawn = pawns & (1LL << (epSquare - 1));
+        uint64_t rightPawn = pawns & (1LL << (epSquare + 1));
+        uint64_t push = ~occupied & (1LL < (epSquare + 8 - 16 * turn));
+        if (leftPawn && push && ((leftPawn & captureMask) || (push & pushMask))) {
+            append_list(get_moves_from_uint64(epSquare - 1, push, friendlyPieces, opponentPieces), &result, &tail);
+        }
+        if (rightPawn && push && ((rightPawn & captureMask) || (push & pushMask))) {
+            append_list(get_moves_from_uint64(epSquare + 1, push, friendlyPieces, opponentPieces), &result, &tail);
+        }
     }
     return result;
 }
@@ -863,24 +905,27 @@ shortlist* get_all_moves(chessboard* board) {
     // 4. get moves for all other pieces
     
     uint64_t friendlyBishops, friendlyRooks, friendlyQueens, friendlyKnights, friendlyPawns;
+    uint64_t notPinned = ~allPinnedPieces;
     if (board->turn == White) {
-        friendlyBishops = board->whiteBishops;
-        friendlyRooks = board->whiteRooks;
-        friendlyQueens = board->whiteQueens;
-        friendlyKnights = board->whiteKnights;
-        friendlyPawns = board->whitePawns;
+        friendlyBishops = board->whiteBishops & notPinned;
+        friendlyRooks = board->whiteRooks & notPinned;
+        friendlyQueens = board->whiteQueens & notPinned;
+        friendlyKnights = board->whiteKnights & notPinned;
+        friendlyPawns = board->whitePawns & notPinned;
     } else {
-        friendlyBishops = board->blackBishops;
-        friendlyRooks = board->blackRooks;
-        friendlyQueens = board->blackQueens;
-        friendlyKnights = board->blackKnights;
-        friendlyPawns = board->blackPawns;
+        friendlyBishops = board->blackBishops & notPinned;
+        friendlyRooks = board->blackRooks & notPinned;
+        friendlyQueens = board->blackQueens & notPinned;
+        friendlyKnights = board->blackKnights & notPinned;
+        friendlyPawns = board->blackPawns & notPinned;
     }
 
-    append_list(get_all_bishop_moves(friendlyBishops, occupied, friendlyPieces, opponentPieces), &moves, &tail);
-    append_list(get_all_rook_moves(friendlyRooks, occupied, friendlyPieces, opponentPieces), &moves, &tail);
-    append_list(get_all_queen_moves(friendlyQueens, occupied, friendlyPieces, opponentPieces), &moves, &tail);
-    append_list(get_all_knight_moves(friendlyKnights, occupied, friendlyPieces, opponentPieces), &moves, &tail);
+    append_list(get_all_bishop_moves(friendlyBishops, occupied, friendlyPieces, opponentPieces, pushMask | captureMask), &moves, &tail);
+    append_list(get_all_rook_moves(friendlyRooks, occupied, friendlyPieces, opponentPieces, pushMask | captureMask), &moves, &tail);
+    append_list(get_all_queen_moves(friendlyQueens, occupied, friendlyPieces, opponentPieces, pushMask | captureMask), &moves, &tail);
+    append_list(get_all_knight_moves(friendlyKnights, occupied, friendlyPieces, opponentPieces, pushMask | captureMask), &moves, &tail);
+    append_list(get_all_pawn_pushes(friendlyPawns, occupied, friendlyPieces, opponentPieces, pushMask, board->turn), &moves, &tail);
+    append_list(get_all_pawn_captures(friendlyPawns, occupied, friendlyPieces, opponentPieces, pushMask, captureMask, board->turn, board->epSquare), &moves, &tail);
 
     return moves;
 }
