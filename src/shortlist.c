@@ -9,6 +9,23 @@ shortlist* cons(int first, shortlist* rest) {
     return res;
 }
 
+// get item at index
+shortlist* get_item(shortlist* l, int i) {
+    if (!l) {
+        return NULL;
+    }
+    int count = 0;
+    shortlist* tail = l;
+    while (tail->next) {
+        if (i == count) {
+            return tail;
+        }
+        count ++;
+        tail = tail->next;
+    }
+    return NULL;
+}
+
 // get last item of shortlist
 shortlist* get_last_item(shortlist* l) {
     if (!l) {

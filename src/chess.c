@@ -639,7 +639,7 @@ shortlist* get_moves_from_uint64(int start, uint64_t end, uint64_t friendlyPiece
 
 // convert move to string
 char* move_to_string(int move) {
-    char* result = (char*) malloc(sizeof(char) * 6);
+    char* result = (char*) malloc(sizeof(char) * 9);
     char start = move & 0x3F;
     move >>= 6;
     char end = move & 0x3F;
@@ -650,7 +650,15 @@ char* move_to_string(int move) {
     result[2] = '-';
     result[3] = 'a' + (end % 8);
     result[4] = '1' + (end / 8);
-    result[5] = '\0';
+    result[5] = ' ';
+    if (flag > 9) {
+        result[6] = '1';
+        result[7] = '0' + (flag - 10);
+    } else {
+        result[6] = '0' + flag;
+        result[7] = ' ';
+    }
+    result[8] = '\0';
     return result;
 }
 
@@ -829,7 +837,7 @@ shortlist* get_all_pawn_captures(uint64_t pawns, uint64_t occupied, uint64_t opp
     return result;
 }
 
-short* get_all_moves(chessboard* board, int* lenPtr) {
+shortlist* get_all_moves(chessboard* board) {
     shortlist* moves = NULL;
     shortlist* tail = NULL;
     
@@ -894,7 +902,7 @@ short* get_all_moves(chessboard* board, int* lenPtr) {
     int numCheckers = popCount(checkers); // number of checking pieces
 
     if (numCheckers >= 2) {
-        return list_to_arr(moves, lenPtr); // double check; only king moves
+        return moves; // double check; only king moves
     }
 
     uint64_t pushMask = 0xFFFFFFFFFFFFFFFFLL; // mask of allowable moves
@@ -972,19 +980,19 @@ short* get_all_moves(chessboard* board, int* lenPtr) {
         }
     }
 
-    return list_to_arr(moves, lenPtr);
+    return moves;
 }
 
 void make_capture(chessboard* board, short square) {
-    for (int i = 1 - board->turn; i < 12; i += 2) {
-        board->pieces[i] ^= 1LL << square;
+    for (int i = board->turn; i < 12; i += 2) {
+        board->pieces[i] &= ~(1LL << square);
     }
 }
 
 void make_move(chessboard* board, short move) {
     short startSquare = move & 0x3F;
     int piece = get_board_piece(board, startSquare);
-    board->pieces[piece] ^= 1LL << startSquare; // remove piece
+    board->pieces[piece] &= ~(1LL << startSquare); // remove piece
     move >>= 6;
     short endSquare = move & 0x3F;
     board->pieces[piece] |= 1LL << endSquare; // place piece
@@ -1026,19 +1034,19 @@ void make_move(chessboard* board, short move) {
             break;
         case 2:
             if (board->turn == White) {
-                board->pieces[WhiteRook] ^= 1LL;
+                board->pieces[WhiteRook] &= ~1LL;
                 board->pieces[WhiteRook] |= 8LL;
             } else {
-                board->pieces[BlackRook] ^= 0x100000000000000LL;
+                board->pieces[BlackRook] &= ~0x100000000000000LL;
                 board->pieces[BlackRook] |= 0x800000000000000LL;
             }
             break;
         case 3:
             if (board->turn == White) {
-                board->pieces[WhiteRook] ^= 0x80LL;
+                board->pieces[WhiteRook] &= ~0x80LL;
                 board->pieces[WhiteRook] |= 0x10LL;
             } else {
-                board->pieces[BlackRook] ^= 0x8000000000000000LL;
+                board->pieces[BlackRook] &= ~0x8000000000000000LL;
                 board->pieces[BlackRook] |= 0x1000000000000000LL;
             }
             break;
@@ -1049,38 +1057,38 @@ void make_move(chessboard* board, short move) {
             make_capture(board, board->turn == White ? endSquare - 8 : endSquare + 8);
             break;
         case 8: 
-            board->pieces[piece] ^= 1 << endSquare;
+            board->pieces[piece] &= ~(1 << endSquare);
             board->pieces[board->turn == White ? WhiteKnight : BlackKnight] |= 1 << endSquare;
             break;
         case 9:
-            board->pieces[piece] ^= 1 << endSquare;
+            board->pieces[piece] &= ~(1 << endSquare);
             board->pieces[board->turn == White ? WhiteBishop : BlackBishop] |= 1 << endSquare;
             break;
         case 10:
-            board->pieces[piece] ^= 1 << endSquare;
+            board->pieces[piece] &= ~(1 << endSquare);
             board->pieces[board->turn == White ? WhiteRook : BlackRook] |= 1 << endSquare;
             break;
         case 11:
-            board->pieces[piece] ^= 1 << endSquare;
+            board->pieces[piece] &= ~(1 << endSquare);
             board->pieces[board->turn == White ? WhiteQueen : BlackQueen] |= 1 << endSquare;
             break;
         case 12: 
-            board->pieces[piece] ^= 1 << endSquare;
+            board->pieces[piece] &= ~(1 << endSquare);
             make_capture(board, endSquare);
             board->pieces[board->turn == White ? WhiteKnight : BlackKnight] |= 1 << endSquare;
             break;
         case 13:
-            board->pieces[piece] ^= 1 << endSquare;
+            board->pieces[piece] &= ~(1 << endSquare);
             make_capture(board, endSquare);
             board->pieces[board->turn == White ? WhiteBishop : BlackBishop] |= 1 << endSquare;
             break;
         case 14:
-            board->pieces[piece] ^= 1 << endSquare;
+            board->pieces[piece] &= ~(1 << endSquare);
             make_capture(board, endSquare);
             board->pieces[board->turn == White ? WhiteRook : BlackRook] |= 1 << endSquare;
             break;
         case 15:
-            board->pieces[piece] ^= 1 << endSquare;
+            board->pieces[piece] &= ~(1 << endSquare);
             make_capture(board, endSquare);
             board->pieces[board->turn == White ? WhiteQueen : BlackQueen] |= 1 << endSquare;
     }
@@ -1094,17 +1102,21 @@ int setup() {
     setup_piece_attacks();
     setup_magics();
     setup_attack_table();
+    srand(3);
     return 0;
 }
 
 int main(int argc, char* argv[]) {
     setup();
     chessboard board = new_board("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-    int moveNum;
-    short* moves = get_all_moves(&board, &moveNum);
+    shortlist* moves = get_all_moves(&board);
     for (int i = 0; i < 10; i ++) {
+        shortlist* temp = moves;
+        moves = get_all_moves(&board);
+        int moveNum = get_list_length(moves);
+        free(temp);
         print_board(&board);
         printf("\n");
-        make_move(&board, get_all_moves(&board, &moveNum)[rand() % moveNum]);
+        make_move(&board, get_item(moves, rand() % moveNum)->val);
     }
 }

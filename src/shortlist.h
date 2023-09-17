@@ -11,6 +11,9 @@ struct shortlist {
 // construct shortlist
 shortlist* cons(int first, shortlist* rest);
 
+// get item at index
+shortlist* get_item(shortlist* l, int i);
+
 // get last item of shortlist
 shortlist* get_last_item(shortlist* l);
 
