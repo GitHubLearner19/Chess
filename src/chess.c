@@ -623,7 +623,7 @@ shortlist* get_moves_from_uint64(int start, uint64_t end, uint64_t friendlyPiece
 
     while (i != 0) {
         int isCapture = (opponentPieces >> i) & 1;
-        shortlist* item = cons(start + (i << 6) + (isCapture << 14), NULL);
+        shortlist* item = cons(start | (i << 6) | (isCapture << 14), NULL);
         if (moves) {
             tail->next = item; // rest of items
         } else {
@@ -753,20 +753,42 @@ shortlist* get_all_knight_moves(uint64_t knights, uint64_t occupied, uint64_t fr
     return result;
 }
 
-uint64_t get_pawn_pushes(uint64_t occupied, int square, pieceColor turn) {
-    uint64_t push;
+shortlist* get_pawn_pushes(uint64_t occupied, int square, pieceColor turn) {
+    shortlist* pawnMoves = NULL;
     if (turn == White) {
-        push = (1 << (square + 8)) & ~occupied;
-        if (square >= 8 && square < 16) {
-            push |= (push << 8);
+        if ((~occupied >> (square + 8)) & 1) {
+            pawnMoves = cons(square | ((square + 8) << 6), NULL);
+            if (square >= 8 && square < 16 && (~occupied >> (square + 16)) & 1) {
+                pawnMoves->next = cons(square | ((square + 16) << 6) | 0x1000, NULL);
+            } else if (square >= 48) {
+                short flag = 0x8000;
+                short move = pawnMoves->val;
+                pawnMoves->val |= flag;
+                shortlist* temp = pawnMoves;
+                for (int i = 1; i < 4; i ++) {
+                    temp->next = cons(move | (flag + i), NULL);
+                    temp = temp->next;
+                }
+            }
         }
     } else {
-        push = (1 << (square - 8)) & ~occupied;
-        if (square >= 48 && square < 56) {
-            push |= (push >> 8);
+        if ((~occupied >> (square - 8)) & 1) {
+            pawnMoves = cons(square | ((square - 8) << 6), NULL);
+            if (square >= 48 && square < 56 && (~occupied >> (square - 16)) & 1) {
+                pawnMoves->next = cons(square | ((square - 16) << 6) | 0x1000, NULL);
+            } else if (square < 16) {
+                short flag = 0x8000;
+                short move = pawnMoves->val;
+                pawnMoves->val |= flag;
+                shortlist* temp = pawnMoves;
+                for (int i = 1; i < 4; i ++) {
+                    temp->next = cons(move | (flag + i), NULL);
+                    temp = temp->next;
+                }
+            }
         }
     }
-    return push;
+    return pawnMoves;
 }
 
 shortlist* get_all_pawn_pushes(uint64_t pawns, uint64_t occupied, uint64_t friendlyPieces, uint64_t opponentPieces, uint64_t mask, pieceColor turn) {
@@ -774,7 +796,7 @@ shortlist* get_all_pawn_pushes(uint64_t pawns, uint64_t occupied, uint64_t frien
     shortlist* tail = NULL;
     int i = bitscan_forward(pawns);
     while (i != 0) {
-        shortlist* pawnMoves = get_moves_from_uint64(i, get_pawn_pushes(occupied, i, turn) & mask, friendlyPieces, opponentPieces);
+        shortlist* pawnMoves = get_pawn_pushes(occupied, i, turn);
         append_list(pawnMoves, &result, &tail);
         pawns &= pawns - 1;
         i = bitscan_forward(pawns);
@@ -782,29 +804,14 @@ shortlist* get_all_pawn_pushes(uint64_t pawns, uint64_t occupied, uint64_t frien
     return result;
 }
 
-shortlist* get_all_pawn_captures(uint64_t pawns, uint64_t occupied, uint64_t friendlyPieces, uint64_t opponentPieces, uint64_t pushMask, uint64_t captureMask, pieceColor turn, int epSquare) {
+shortlist* get_all_pawn_captures(uint64_t pawns, uint64_t occupied, uint64_t friendlyPieces, uint64_t opponentPieces, uint64_t mask, pieceColor turn) {
     shortlist* result = NULL;
     shortlist* tail = NULL;
-
-    // normal captures
     int i = bitscan_forward(pawns);
     while (i != 0) {
-        shortlist* pawnMoves = get_moves_from_uint64(i, pawnAttacks[i][turn] & captureMask, ~opponentPieces, opponentPieces);
+        shortlist* pawnMoves = get_moves_from_uint64(i, pawnAttacks[i][turn] & mask, ~opponentPieces, opponentPieces);
         pawns &= pawns - 1;
         i = bitscan_forward(pawns);
-    }
-
-    // en passant captures
-    if (epSquare > 0) {
-        uint64_t leftPawn = pawns & (1LL << (epSquare - 1));
-        uint64_t rightPawn = pawns & (1LL << (epSquare + 1));
-        uint64_t push = ~occupied & (1LL < (epSquare + 8 - 16 * turn));
-        if (leftPawn && push && ((leftPawn & captureMask) || (push & pushMask))) {
-            append_list(get_moves_from_uint64(epSquare - 1, push, friendlyPieces, opponentPieces), &result, &tail);
-        }
-        if (rightPawn && push && ((rightPawn & captureMask) || (push & pushMask))) {
-            append_list(get_moves_from_uint64(epSquare + 1, push, friendlyPieces, opponentPieces), &result, &tail);
-        }
     }
     return result;
 }
@@ -925,7 +932,21 @@ shortlist* get_all_moves(chessboard* board) {
     append_list(get_all_queen_moves(friendlyQueens, occupied, friendlyPieces, opponentPieces, pushMask | captureMask), &moves, &tail);
     append_list(get_all_knight_moves(friendlyKnights, occupied, friendlyPieces, opponentPieces, pushMask | captureMask), &moves, &tail);
     append_list(get_all_pawn_pushes(friendlyPawns, occupied, friendlyPieces, opponentPieces, pushMask, board->turn), &moves, &tail);
-    append_list(get_all_pawn_captures(friendlyPawns, occupied, friendlyPieces, opponentPieces, pushMask, captureMask, board->turn, board->epSquare), &moves, &tail);
+    append_list(get_all_pawn_captures(friendlyPawns, occupied, friendlyPieces, opponentPieces, captureMask, board->turn), &moves, &tail);
+
+    // en passant captures
+    if (board->epSquare > 0) {
+        uint64_t pawns = board->turn == White ? board->whitePawns : board->blackPawns;
+        uint64_t leftPawn = pawns & (1LL << (board->epSquare - 1));
+        uint64_t rightPawn = pawns & (1LL << (board->epSquare + 1));
+        uint64_t push = ~occupied & (1LL < (board->epSquare + 8 - 16 * board->turn));
+        if (leftPawn && push && ((leftPawn & captureMask) || (push & pushMask))) {
+            append_list(get_moves_from_uint64(board->epSquare - 1, push, friendlyPieces, opponentPieces), &moves, &tail);
+        }
+        if (rightPawn && push && ((rightPawn & captureMask) || (push & pushMask))) {
+            append_list(get_moves_from_uint64(board->epSquare + 1, push, friendlyPieces, opponentPieces), &moves, &tail);
+        }
+    }
 
     return moves;
 }
