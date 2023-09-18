@@ -34,6 +34,8 @@ struct board {
     shortlist* castleQueenLogTail;
     shortlist* epLog;
     shortlist* epLogTail;
+    shortlist* halfMoveClockLog;
+    shortlist* halfMoveClockLogTail;
 };
 
 void print_bitboard(uint64_t bitboard) {
@@ -157,6 +159,8 @@ chessboard new_board(char* fen) {
     board.castleQueenLogTail = NULL;
     board.epLog = NULL;
     board.epLogTail = NULL;
+    board.halfMoveClockLog = NULL;
+    board.halfMoveClockLogTail = NULL;
     
     return board;
     return board;
@@ -1050,6 +1054,7 @@ void make_capture(chessboard* board, short square) {
     short capturedPiece = get_board_piece(board, square);
     board->pieces[capturedPiece] &= ~(1LL << square);
     board->captureLogTail->val = capturedPiece;
+    board->halfMoveClock = 0;
 }
 
 void make_move(chessboard* board, short move) {
@@ -1060,13 +1065,15 @@ void make_move(chessboard* board, short move) {
     short endSquare = move & 0x3F;
     move >>= 6;
 
-    board->epSquare = -1; // reset en passant target
-
     // set log entries to default value
     append_list(cons(-1, NULL), &board->captureLog, &board->captureLogTail); 
     append_list(cons(board->castleKing[board->turn], NULL), &board->castleKingLog, &board->castleKingLogTail);
     append_list(cons(board->castleQueen[board->turn], NULL), &board->castleQueenLog, &board->castleQueenLogTail);
     append_list(cons(board->epSquare, NULL), &board->epLog, &board->epLogTail);
+    append_list(cons(board->halfMoveClock, NULL), &board->halfMoveClockLog, &board->halfMoveClockLogTail);
+
+    board->epSquare = -1; // reset en passant target
+    board->halfMoveClock ++; // add to half move clock
 
     // remove castling rights
     if (piece == White) {
@@ -1162,6 +1169,14 @@ void make_move(chessboard* board, short move) {
     }
 
     board->pieces[piece] |= 1LL << endSquare; // place piece
+
+    if (piece == WhitePawn || piece == BlackPawn) {
+        board->halfMoveClock = 0;
+    }
+
+    if (board->turn == Black) {
+        board->fullMoves ++; // update full move count
+    }
 
     board->turn = 1 - board->turn; // change turn
 }
