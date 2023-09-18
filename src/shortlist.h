@@ -24,6 +24,6 @@ int get_list_length(shortlist* l);
 void append_list(shortlist* newList, shortlist** listPtr, shortlist** tailPtr);
 
 // free list and convert to array
-short* list_to_arr(shortlist* l, int* lenPtr);
+unsigned short* list_to_arr(shortlist* l, int* lenPtr);
 
 #endif

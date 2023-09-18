@@ -16,7 +16,7 @@ shortlist* get_item(shortlist* l, int i) {
     }
     int count = 0;
     shortlist* tail = l;
-    while (tail->next) {
+    while (tail) {
         if (i == count) {
             return tail;
         }
@@ -66,13 +66,13 @@ int get_list_length(shortlist* l) {
 }
 
 // free list and convert to array
-short* list_to_arr(shortlist* l, int* lenPtr) {
+unsigned short* list_to_arr(shortlist* l, int* lenPtr) {
     if (!l) {
         *lenPtr = 0;
         return NULL;
     }
     *lenPtr = get_list_length(l);
-    short* result = (short*) malloc(sizeof(short) * *lenPtr);
+    unsigned short* result = (unsigned short*) malloc(sizeof(unsigned short) * *lenPtr);
     int i = 0;
     shortlist* tail = l;
     while (tail) {

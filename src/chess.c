@@ -21,8 +21,8 @@ typedef struct board chessboard;
 struct board {
     uint64_t pieces[12];
     pieceColor turn;
-    short castleKing[2];
-    short castleQueen[2];
+    unsigned short castleKing[2];
+    unsigned short castleQueen[2];
     int epSquare;
     int halfMoveClock;
     int fullMoves;
@@ -167,7 +167,7 @@ chessboard new_board(char* fen) {
 }
 
 // get piece at square on chess board
-short get_board_piece(chessboard* board, short square) {
+unsigned short get_board_piece(chessboard* board, unsigned short square) {
     uint64_t allPieces[12] = {
         board->pieces[BlackPawn], board->pieces[WhitePawn],
         board->pieces[BlackKnight], board->pieces[WhiteKnight],
@@ -181,7 +181,7 @@ short get_board_piece(chessboard* board, short square) {
             return i;
         }
     }
-    return -1;
+    return 13;
 }
 
 // print chess board
@@ -189,8 +189,8 @@ void print_board(chessboard* board) {
     char pieceChars[12] = {'p', 'P', 'n', 'N', 'b', 'B', 'r', 'R', 'q', 'Q', 'k', 'K'};
     for (int row = 7; row >= 0; row --) {
         for (int col = 0; col < 8; col ++) {
-            short piece = get_board_piece(board, row * 8 + col);
-            if (piece >= 0) {
+            unsigned short piece = get_board_piece(board, row * 8 + col);
+            if (piece < 13) {
                 putchar(pieceChars[piece]);
             } else {
                 putchar('.');
@@ -600,7 +600,7 @@ uint64_t* get_directional_attacks(uint64_t bishops, uint64_t rooks, uint64_t que
     
     // bishop attacks
     int i = bitscan_forward(bishops);
-    while (i != 0) {
+    while (bishops) {
         uint64_t bishopAttacks = get_bishop_attacks_magic(occupied, i);
         attacks[NoEa] |= bishopAttacks & rayAttacks[i][NoEa];
         attacks[SoEa] |= bishopAttacks & rayAttacks[i][SoEa];
@@ -612,7 +612,7 @@ uint64_t* get_directional_attacks(uint64_t bishops, uint64_t rooks, uint64_t que
 
     // rook attacks
     i = bitscan_forward(rooks);
-    while (i != 0) {
+    while (rooks) {
         uint64_t rookAttacks = get_rook_attacks_magic(occupied, i);
         attacks[Nort] |= rookAttacks & rayAttacks[i][Nort];
         attacks[East] |= rookAttacks & rayAttacks[i][East];
@@ -624,7 +624,7 @@ uint64_t* get_directional_attacks(uint64_t bishops, uint64_t rooks, uint64_t que
 
     // queen attacks
     i = bitscan_forward(queens);
-    while (i != 0) {
+    while (queens) {
         uint64_t queenAttacks = get_bishop_attacks_magic(occupied, i) | get_rook_attacks_magic(occupied, i);
         attacks[Nort] |= queenAttacks & rayAttacks[i][Nort];
         attacks[NoEa] |= queenAttacks & rayAttacks[i][NoEa];
@@ -644,7 +644,7 @@ uint64_t* get_directional_attacks(uint64_t bishops, uint64_t rooks, uint64_t que
 uint64_t get_all_knight_attacks(uint64_t knights) {
     uint64_t attacks = 0;
     int i = bitscan_forward(knights);
-    while (i != 0) {
+    while (knights) {
         attacks |= knightAttacks[i];
         knights &= knights - 1;
         i = bitscan_forward(knights);
@@ -655,7 +655,7 @@ uint64_t get_all_knight_attacks(uint64_t knights) {
 uint64_t get_all_pawn_attacks(uint64_t pawns, pieceColor side) {
     uint64_t attacks = 0;
     int i = bitscan_forward(pawns);
-    while (i != 0) {
+    while (pawns) {
         attacks |= pawnAttacks[i][side];
         pawns &= pawns - 1;
         i = bitscan_forward(pawns);
@@ -674,7 +674,7 @@ shortlist* get_moves_from_uint64(int start, uint64_t end, uint64_t friendlyPiece
     int i = bitscan_forward(end); // square of set bit
     shortlist* tail;
 
-    while (i != 0) {
+    while (end) {
         int isCapture = (opponentPieces >> i) & 1;
         shortlist* item = cons(start | (i << 6) | (isCapture << 14), NULL);
         if (moves) {
@@ -727,7 +727,7 @@ uint64_t get_attacked_squares(chessboard* board, uint64_t occupied, uint64_t** d
     } else {
         *directionalAttacksPtr = get_directional_attacks(board->pieces[WhiteBishop], board->pieces[WhiteRook], board->pieces[WhiteQueen], occupied);
         attacked |= get_all_knight_attacks(board->pieces[WhiteKnight]);
-        attacked |= get_all_pawn_attacks(board->pieces[WhitePawn], Black);
+        attacked |= get_all_pawn_attacks(board->pieces[WhitePawn], White);
         attacked |= get_king_attacks(board->pieces[WhiteKing]);
     }
 
@@ -738,13 +738,72 @@ uint64_t get_attacked_squares(chessboard* board, uint64_t occupied, uint64_t** d
     return attacked;
 }
 
+shortlist* get_pawn_pushes(uint64_t empty, uint64_t mask, int square, pieceColor turn) {
+    shortlist* pawnMoves = NULL;
+    int f = turn == White ? 1 : -1;
+    int endSquare = square + 8 * f;
+    if ((empty >> endSquare) & 1) {
+        // single push
+        if ((mask >> endSquare) & 1) {
+            pawnMoves = cons(square | (endSquare << 6), NULL);
+            // promotion
+            if (square >= 28 + 20 * f && square < 36 + 20 * f) {
+                unsigned short flag = 0x8000;
+                unsigned short move = pawnMoves->val;
+                pawnMoves->val |= flag;
+                shortlist* temp = pawnMoves;
+                for (int i = 0x1000; i < 0x4000; i += 0x1000) {
+                    temp->next = cons(move | (flag + i), NULL);
+                    temp = temp->next;
+                }
+            }
+        }
+        endSquare = square + 16 * f;
+        // double push
+        if (square >= 28 - 20 * f && square < 36 - 20 * f && ((empty & mask) >> endSquare) & 1) {
+            if (pawnMoves) {
+                pawnMoves->next = cons(square | (endSquare << 6) | 0x1000, NULL);
+            } else {
+                pawnMoves = cons(square | (endSquare << 6) | 0x1000, NULL);
+            }
+        }
+    }
+    return pawnMoves;
+}
+
+shortlist* get_pawn_captures(uint64_t opponentPieces, int square, pieceColor turn) {
+    shortlist* pawnMoves = NULL;
+    shortlist* tail = NULL;
+    uint64_t attacks = pawnAttacks[square][turn] & opponentPieces;
+    uint64_t i = bitscan_forward(attacks);
+    while (attacks) {
+        append_list(cons(square | (i << 6), NULL), &pawnMoves, &tail);
+        if (square >= 48 - 40 * turn && square < 56 - 40 * turn) {
+            unsigned short flag = 0xc000;
+            unsigned short move = tail->val;
+            tail->val |= flag;
+            for (int j = 0x1000; j < 0x4000; j += 0x1000) {
+                tail->next = cons(move | (flag + j), NULL);
+                tail = tail->next;
+            }
+        } else {
+            tail->val |= 0x4000;
+        }
+        attacks &= attacks - 1;
+        i = bitscan_forward(attacks);
+    }
+    return pawnMoves;
+}
+
 // get moves for pinned piece along diagonal and update 'allPinnedPieces'
 shortlist* get_pinned_diagonal_moves(chessboard* board, enumDirection dir, uint64_t* directionalAttacks, uint64_t kingBishopMoves, int kingSquare, uint64_t friendlyPieces, uint64_t opponentPieces, uint64_t* allPinnedPieces) {
     uint64_t pinnedPiece = kingBishopMoves & rayAttacks[kingSquare][dir] & directionalAttacks[(dir + 4) % 8];
     if (popCount(pinnedPiece) == 1) {
         *allPinnedPieces |= pinnedPiece;
-        if (pinnedPiece & (board->turn == White ? board->pieces[BlackBishop] | board->pieces[BlackQueen] : board->pieces[WhiteBishop] | board->pieces[WhiteQueen])) {
+        if (pinnedPiece & (board->turn == White ? board->pieces[WhiteBishop] | board->pieces[WhiteQueen] : board->pieces[BlackBishop] | board->pieces[BlackQueen])) {
             return get_moves_from_uint64(bitscan_forward(pinnedPiece), kingBishopMoves & rayAttacks[kingSquare][dir], friendlyPieces, opponentPieces);
+        } else if (pinnedPiece & (board->turn == White ? board->pieces[WhitePawn] : board->pieces[BlackPawn])) {
+            return get_pawn_captures(opponentPieces & rayAttacks[kingSquare][dir], bitscan_forward(pinnedPiece), board->turn);
         }
     }
     return NULL;
@@ -755,7 +814,7 @@ shortlist* get_pinned_straight_moves(chessboard* board, enumDirection dir, uint6
     uint64_t pinnedPiece = kingRookMoves & rayAttacks[kingSquare][dir] & directionalAttacks[(dir + 4) % 8];
     if (popCount(pinnedPiece) == 1) {
         *allPinnedPieces |= pinnedPiece;
-        if (pinnedPiece & (board->turn == White ? board->pieces[BlackRook] | board->pieces[BlackQueen] : board->pieces[WhiteRook] | board->pieces[WhiteQueen])) {
+        if (pinnedPiece & (board->turn == White ? board->pieces[WhiteRook] | board->pieces[WhiteQueen] : board->pieces[BlackRook] | board->pieces[BlackQueen])) {
             return get_moves_from_uint64(bitscan_forward(pinnedPiece), kingRookMoves & rayAttacks[kingSquare][dir], friendlyPieces, opponentPieces);
         }
     }
@@ -766,7 +825,7 @@ shortlist* get_all_bishop_moves(uint64_t bishops, uint64_t occupied, uint64_t fr
     shortlist* result = NULL;
     shortlist* tail = NULL;
     int i = bitscan_forward(bishops);
-    while (i != 0) {
+    while (bishops) {
         shortlist* bishopMoves = get_moves_from_uint64(i, get_bishop_attacks_magic(occupied, i) & mask, friendlyPieces, opponentPieces);
         append_list(bishopMoves, &result, &tail);
         bishops &= bishops - 1;
@@ -779,7 +838,7 @@ shortlist* get_all_rook_moves(uint64_t rooks, uint64_t occupied, uint64_t friend
     shortlist* result = NULL;
     shortlist* tail = NULL;
     int i = bitscan_forward(rooks);
-    while (i != 0) {
+    while (rooks) {
         shortlist* rookMoves = get_moves_from_uint64(i, get_rook_attacks_magic(occupied, i) & mask, friendlyPieces, opponentPieces);
         append_list(rookMoves, &result, &tail);
         rooks &= rooks - 1;
@@ -792,7 +851,7 @@ shortlist* get_all_queen_moves(uint64_t queens, uint64_t occupied, uint64_t frie
     shortlist* result = NULL;
     shortlist* tail = NULL;
     int i = bitscan_forward(queens);
-    while (i != 0) {
+    while (queens) {
         shortlist* queenMoves = get_moves_from_uint64(i, (get_bishop_attacks_magic(occupied, i) | get_rook_attacks_magic(occupied, i)) & mask, friendlyPieces, opponentPieces);
         append_list(queenMoves, &result, &tail);
         queens &= queens - 1;
@@ -805,7 +864,7 @@ shortlist* get_all_knight_moves(uint64_t knights, uint64_t occupied, uint64_t fr
     shortlist* result = NULL;
     shortlist* tail = NULL;
     int i = bitscan_forward(knights);
-    while (i != 0) {
+    while (knights) {
         shortlist* knightMoves = get_moves_from_uint64(i, knightAttacks[i] & mask, friendlyPieces, opponentPieces);
         append_list(knightMoves, &result, &tail);
         knights &= knights - 1;
@@ -814,62 +873,12 @@ shortlist* get_all_knight_moves(uint64_t knights, uint64_t occupied, uint64_t fr
     return result;
 }
 
-shortlist* get_pawn_pushes(uint64_t empty, int square, pieceColor turn) {
-    shortlist* pawnMoves = NULL;
-    int f = turn == White ? 1 : -1;
-    int endSquare = square + 8 * f;
-    if ((empty >> (endSquare)) & 1) {
-        // single push
-        pawnMoves = cons(square | (endSquare << 6), NULL);
-        endSquare = square + 16 * f;
-        if (square >= 28 - 20 * f && square < 36 - 20 * f && (empty >> endSquare) & 1) {
-            // double push
-            pawnMoves->next = cons(square | (endSquare << 6) | 0x1000, NULL);
-        } else if (square >= 28 + 20 * f && square < 36 + 20 * f) {
-            // promotion
-            short flag = 0x8000;
-            short move = pawnMoves->val;
-            pawnMoves->val |= flag;
-            shortlist* temp = pawnMoves;
-            for (int i = 1; i < 4; i ++) {
-                temp->next = cons(move | (flag + i), NULL);
-                temp = temp->next;
-            }
-        }
-    }
-    return pawnMoves;
-}
-
-shortlist* get_pawn_captures(uint64_t opponentPieces, int square, pieceColor turn) {
-    shortlist* pawnMoves = NULL;
-    shortlist* tail = NULL;
-    int endSquare = square + 7 - 16 * turn;
-    for (int i = 0; i < 2; i ++) {
-        if ((opponentPieces >> endSquare) & 1) {
-            append_list(cons(square | (endSquare << 6), NULL), &pawnMoves, &tail);
-            if (square >= 48 - 40 * turn && square < 56 - 40 * turn) {
-                short flag = 0xc000;
-                short move = tail->val;
-                tail->val |= flag;
-                for (int i = 1; i < 4; i ++) {
-                    tail->next = cons(move | (flag + i), NULL);
-                    tail = tail->next;
-                }
-            } else {
-                tail->val |= 0x4000;
-            }
-        }
-        endSquare += 2;
-    }
-    return pawnMoves;
-}
-
 shortlist* get_all_pawn_pushes(uint64_t pawns, uint64_t occupied, uint64_t mask, pieceColor turn) {
     shortlist* result = NULL;
     shortlist* tail = NULL;
     int i = bitscan_forward(pawns);
-    while (i != 0) {
-        shortlist* pawnMoves = get_pawn_pushes(~occupied & mask, i, turn);
+    while (pawns) {
+        shortlist* pawnMoves = get_pawn_pushes(~occupied, mask, i, turn);
         append_list(pawnMoves, &result, &tail);
         pawns &= pawns - 1;
         i = bitscan_forward(pawns);
@@ -881,8 +890,8 @@ shortlist* get_all_pawn_captures(uint64_t pawns, uint64_t occupied, uint64_t opp
     shortlist* result = NULL;
     shortlist* tail = NULL;
     int i = bitscan_forward(pawns);
-    while (i != 0) {
-        shortlist* pawnMoves = get_pawn_captures(opponentPieces, i, turn);
+    while (pawns) {
+        shortlist* pawnMoves = get_pawn_captures(opponentPieces & mask, i, turn);
         append_list(pawnMoves, &result, &tail);
         pawns &= pawns - 1;
         i = bitscan_forward(pawns);
@@ -941,12 +950,12 @@ shortlist* get_all_moves(chessboard* board) {
 
     // king-side castle
     if (board->castleKing[board->turn] && !((attacked | occupied) & (0x70LL << (56 * board->turn)))) {
-        append_list(cons(kingSquare | (kingSquare + 2) << 6 | 0x200, NULL), &moves, &tail);
+        append_list(cons(kingSquare | (kingSquare + 2) << 6 | 0x2000, NULL), &moves, &tail);
     } 
 
     // queen-side castle
     if (board->castleQueen[board->turn] && !(occupied & (0x1eLL << (56 * board->turn))) && !(attacked & (0x1cLL << (56 * board->turn)))) {
-        append_list(cons(kingSquare | (kingSquare - 2) << 6 | 0x200, NULL), &moves, &tail);
+        append_list(cons(kingSquare | (kingSquare - 2) << 6 | 0x2000, NULL), &moves, &tail);
     }
 
     occupied |= board->turn == White ? board->pieces[WhiteKing] : board->pieces[BlackKing]; // add king back in
@@ -1050,19 +1059,19 @@ shortlist* get_all_moves(chessboard* board) {
     return moves;
 }
 
-void make_capture(chessboard* board, short square) {
-    short capturedPiece = get_board_piece(board, square);
+void make_capture(chessboard* board, unsigned short square) {
+    unsigned short capturedPiece = get_board_piece(board, square);
     board->pieces[capturedPiece] &= ~(1LL << square);
     board->captureLogTail->val = capturedPiece;
     board->halfMoveClock = 0;
 }
 
-void make_move(chessboard* board, short move) {
-    short startSquare = move & 0x3F;
-    short piece = get_board_piece(board, startSquare);
+void make_move(chessboard* board, unsigned short move) {
+    unsigned short startSquare = move & 0x3F;
+    unsigned short piece = get_board_piece(board, startSquare);
     board->pieces[piece] &= ~(1LL << startSquare); // remove piece
     move >>= 6;
-    short endSquare = move & 0x3F;
+    unsigned short endSquare = move & 0x3F;
     move >>= 6;
 
     // set log entries to default value
@@ -1131,45 +1140,40 @@ void make_move(chessboard* board, short move) {
         case 5: 
             make_capture(board, board->turn == White ? endSquare - 8 : endSquare + 8);
             break;
-        case 8: 
-            board->pieces[piece] &= ~(1 << endSquare);
-            board->pieces[board->turn == White ? WhiteKnight : BlackKnight] |= 1 << endSquare;
+        case 8:
+            board->pieces[board->turn == White ? WhiteKnight : BlackKnight] |= 1LL << endSquare;
             break;
         case 9:
-            board->pieces[piece] &= ~(1 << endSquare);
-            board->pieces[board->turn == White ? WhiteBishop : BlackBishop] |= 1 << endSquare;
+            board->pieces[board->turn == White ? WhiteBishop : BlackBishop] |= 1LL << endSquare;
             break;
         case 10:
-            board->pieces[piece] &= ~(1 << endSquare);
-            board->pieces[board->turn == White ? WhiteRook : BlackRook] |= 1 << endSquare;
+            board->pieces[board->turn == White ? WhiteRook : BlackRook] |= 1LL << endSquare;
             break;
         case 11:
-            board->pieces[piece] &= ~(1 << endSquare);
-            board->pieces[board->turn == White ? WhiteQueen : BlackQueen] |= 1 << endSquare;
+            board->pieces[board->turn == White ? WhiteQueen : BlackQueen] |= 1LL << endSquare;
             break;
         case 12: 
-            board->pieces[piece] &= ~(1 << endSquare);
             make_capture(board, endSquare);
-            board->pieces[board->turn == White ? WhiteKnight : BlackKnight] |= 1 << endSquare;
+            board->pieces[board->turn == White ? WhiteKnight : BlackKnight] |= 1LL << endSquare;
             break;
         case 13:
-            board->pieces[piece] &= ~(1 << endSquare);
             make_capture(board, endSquare);
-            board->pieces[board->turn == White ? WhiteBishop : BlackBishop] |= 1 << endSquare;
+            board->pieces[board->turn == White ? WhiteBishop : BlackBishop] |= 1LL << endSquare;
             break;
         case 14:
-            board->pieces[piece] &= ~(1 << endSquare);
             make_capture(board, endSquare);
-            board->pieces[board->turn == White ? WhiteRook : BlackRook] |= 1 << endSquare;
+            board->pieces[board->turn == White ? WhiteRook : BlackRook] |= 1LL << endSquare;
             break;
         case 15:
-            board->pieces[piece] &= ~(1 << endSquare);
             make_capture(board, endSquare);
-            board->pieces[board->turn == White ? WhiteQueen : BlackQueen] |= 1 << endSquare;
+            board->pieces[board->turn == White ? WhiteQueen : BlackQueen] |= 1LL << endSquare;
     }
-
-    board->pieces[piece] |= 1LL << endSquare; // place piece
-
+    
+    // place piece
+    if (move < 8) {
+        board->pieces[piece] |= 1LL << endSquare;
+    }
+    
     if (piece == WhitePawn || piece == BlackPawn) {
         board->halfMoveClock = 0;
     }
@@ -1179,6 +1183,103 @@ void make_move(chessboard* board, short move) {
     }
 
     board->turn = 1 - board->turn; // change turn
+}
+
+void undo_move(chessboard* board, unsigned short move) {
+    int halfMoveNum = (board->fullMoves - 1) * 2 + board->turn;
+
+    if (halfMoveNum == 0) {
+        return;
+    }
+
+    unsigned short startSquare = move & 0x3F;
+    move >>= 6;
+    unsigned short endSquare = move & 0x3F;
+    unsigned short piece = get_board_piece(board, endSquare);
+    board->pieces[piece] &= ~(1LL << endSquare); // remove piece
+    move >>= 6;
+
+    board->turn = 1 - board->turn;
+    
+    // uncapture
+    unsigned short capturedPiece = board->captureLogTail->val;
+    if (capturedPiece < 13) {
+        if (move == 5) {
+            board->pieces[capturedPiece] |= 1LL << (endSquare - 8 + 16 * board->turn);
+        } else {
+            board->pieces[capturedPiece] |= 1LL << endSquare;
+        }
+    }
+    
+    if (move == 2) {
+        // king castle
+        if (board->turn == White) {
+            board->pieces[WhiteRook] &= ~8LL;
+            board->pieces[WhiteRook] |= 1LL;
+        } else {
+            board->pieces[BlackRook] &= ~0x800000000000000LL;
+            board->pieces[BlackRook] |= 0x100000000000000LL;
+        }
+    } else if (move == 3) {
+        // queen castle
+        if (board->turn == White) {
+            board->pieces[WhiteRook] &= ~0x10LL;
+            board->pieces[WhiteRook] |= 0x80LL;
+        } else {
+            board->pieces[BlackRook] &= ~0x1000000000000000LL;
+            board->pieces[BlackRook] |= 0x8000000000000000LL;
+        }
+    } else if (move >= 8) {
+        // promotion
+        piece = board ->turn == White ? WhitePawn : BlackPawn;
+    }
+    
+    board->pieces[piece] |= 1LL << startSquare; // place piece
+
+    // update rights
+    board->castleKing[board->turn] = board->castleKingLogTail->val;
+    board->castleQueen[board->turn] = board->castleQueenLogTail->val;
+    board->epSquare = board->epLogTail->val;
+    board->halfMoveClock = board->halfMoveClockLogTail->val;
+    if (board->turn == Black) {
+        board->fullMoves --;
+    }
+    
+    // remove last log entries
+    if (halfMoveNum == 1) {
+        board->captureLog = NULL;
+        board->captureLogTail = NULL;
+        board->castleKingLog = NULL;
+        board->castleKingLogTail = NULL;
+        board->castleQueenLog = NULL;
+        board->castleQueenLogTail = NULL;
+        board->epLog = NULL;
+        board->epLogTail = NULL;
+        board->halfMoveClockLog = NULL;
+        board->halfMoveClockLogTail = NULL;
+    } else {
+        board->captureLogTail = get_item(board->captureLog, halfMoveNum - 2);
+        board->castleKingLogTail = get_item(board->castleKingLog, halfMoveNum - 2);
+        board->castleQueenLogTail = get_item(board->castleQueenLog, halfMoveNum - 2);
+        board->epLogTail = get_item(board->epLog, halfMoveNum - 2);
+        board->halfMoveClockLogTail = get_item(board->halfMoveClockLog, halfMoveNum - 2);
+    }
+}
+
+int perft(chessboard* board, int depth) {
+    if (depth == 0) {
+        return 1LL;
+    }
+    int nodes = 0;
+    shortlist* moves = get_all_moves(board);
+    shortlist* tail = moves;
+    while (tail) {
+        make_move(board, tail->val);
+        nodes += perft(board, depth - 1);
+        undo_move(board, tail->val);
+        tail = tail->next;
+    }
+    return nodes;
 }
 
 int setup() {
@@ -1193,15 +1294,17 @@ int setup() {
 
 int main(int argc, char* argv[]) {
     setup();
-    chessboard board = new_board("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    chessboard board = new_board("rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 0 1");
     shortlist* moves = get_all_moves(&board);
-    for (int i = 0; i < 10; i ++) {
-        shortlist* temp = moves;
-        moves = get_all_moves(&board);
-        int moveNum = get_list_length(moves);
-        free(temp);
-        print_board(&board);
-        printf("\n");
-        make_move(&board, get_item(moves, rand() % moveNum)->val);
+    print_board(&board);
+    printf("\n");
+    unsigned short move = get_item(moves, 8)->val;
+    make_move(&board, move);
+    print_board(&board);
+    moves = get_all_moves(&board);
+    shortlist* temp = moves;
+    while (temp) {
+        printf("%s\n", move_to_string(temp->val));
+        temp = temp->next;
     }
 }
