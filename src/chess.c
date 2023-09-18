@@ -24,7 +24,16 @@ struct board {
     short castleKing[2];
     short castleQueen[2];
     int epSquare;
-    shortlist* move_log;
+    int halfMoveClock;
+    int fullMoves;
+    shortlist* captureLog;
+    shortlist* captureLogTail;
+    shortlist* castleKingLog;
+    shortlist* castleKingLogTail;
+    shortlist* castleQueenLog;
+    shortlist* castleQueenLogTail;
+    shortlist* epLog;
+    shortlist* epLogTail;
 };
 
 void print_bitboard(uint64_t bitboard) {
@@ -43,18 +52,9 @@ void print_bitboard(uint64_t bitboard) {
 // get a new chess board from fen
 chessboard new_board(char* fen) {
     chessboard board;
-    board.pieces[WhiteKing] = 0LL;
-    board.pieces[BlackKing] = 0LL;
-    board.pieces[WhiteBishop] = 0LL;
-    board.pieces[BlackBishop] = 0LL;
-    board.pieces[WhiteRook] = 0LL;
-    board.pieces[BlackRook] = 0LL;
-    board.pieces[WhiteQueen] = 0LL;
-    board.pieces[BlackQueen] = 0LL;
-    board.pieces[WhiteKnight] = 0LL;
-    board.pieces[BlackKnight] = 0LL;
-    board.pieces[WhitePawn] = 0LL;
-    board.pieces[BlackPawn] = 0LL;
+    for (int i = 0; i < 12; i ++) {
+        board.pieces[i] = 0LL;
+    }
     int row = 7; 
     int col = 0;
     int i = 0;
@@ -110,11 +110,60 @@ chessboard new_board(char* fen) {
 
     board.turn = fen[++i] == 'w' ? White : Black;
 
+    i += 2;
+
+    if (fen[i] == '-') {
+        board.castleKing[White] = 0;
+        board.castleKing[Black] = 0;
+        board.castleQueen[White] = 0;
+        board.castleQueen[Black] = 0;
+        i ++;
+    } else {
+        while (fen[i] != ' ') {
+            switch (fen[i]) {
+                case 'K':
+                    board.castleKing[White] = 1;
+                    break;
+                case 'Q':
+                    board.castleQueen[White] = 1;
+                    break;
+                case 'k':
+                    board.castleKing[Black] = 1;
+                    break;
+                case 'q':
+                    board.castleQueen[Black] = 1;
+            }
+            i ++;
+        }
+    }
+
+    if (fen[++i] == '-') {
+        board.epSquare = -1;
+    } else {
+        board.epSquare = (fen[i] - 'a') + (fen[i + 1] - '1') * 8;
+        i ++;
+    }
+
+    i += 2;
+    board.halfMoveClock = fen[i] - '0';
+    i += 2;
+    board.fullMoves = fen[i] - '0';
+
+    board.captureLog = NULL;
+    board.captureLogTail = NULL;
+    board.castleKingLog = NULL;
+    board.castleKingLogTail = NULL;
+    board.castleQueenLog = NULL;
+    board.castleQueenLogTail = NULL;
+    board.epLog = NULL;
+    board.epLogTail = NULL;
+    
+    return board;
     return board;
 }
 
 // get piece at square on chess board
-int get_board_piece(chessboard* board, int square) {
+short get_board_piece(chessboard* board, short square) {
     uint64_t allPieces[12] = {
         board->pieces[BlackPawn], board->pieces[WhitePawn],
         board->pieces[BlackKnight], board->pieces[WhiteKnight],
@@ -136,7 +185,7 @@ void print_board(chessboard* board) {
     char pieceChars[12] = {'p', 'P', 'n', 'N', 'b', 'B', 'r', 'R', 'q', 'Q', 'k', 'K'};
     for (int row = 7; row >= 0; row --) {
         for (int col = 0; col < 8; col ++) {
-            int piece = get_board_piece(board, row * 8 + col);
+            short piece = get_board_piece(board, row * 8 + col);
             if (piece >= 0) {
                 putchar(pieceChars[piece]);
             } else {
@@ -837,6 +886,33 @@ shortlist* get_all_pawn_captures(uint64_t pawns, uint64_t occupied, uint64_t opp
     return result;
 }
 
+shortlist* get_all_pawn_en_passant(uint64_t pawns, uint64_t occupied, uint64_t opponentSliders, uint64_t pushMask, uint64_t captureMask, int kingSquare, int epSquare, pieceColor turn) {
+    shortlist* result = NULL;
+    shortlist* tail = NULL;
+
+    if (epSquare > 0) {
+        uint64_t leftPawn = pawns & (1LL << (epSquare - 1));
+        uint64_t rightPawn = pawns & (1LL << (epSquare + 1));
+        uint64_t capturePawn = 1LL << epSquare;
+        int pushSquare = epSquare + 8 - 16 * turn;
+        uint64_t push = ~occupied & (1LL < pushSquare);
+        if (leftPawn && push && ((leftPawn & captureMask) || (push & pushMask))) {
+            // check for check
+            if (!(get_rook_attacks_magic(occupied & ~(leftPawn | capturePawn), kingSquare) & opponentSliders)) {
+                append_list(cons((epSquare - 1) | (pushSquare << 6) | 0x5000, NULL), &result, &tail);
+            }
+        }
+        if (rightPawn && push && ((rightPawn & captureMask) || (push & pushMask))) {
+            // check for check
+            if (!(get_rook_attacks_magic(occupied & ~(rightPawn | capturePawn), kingSquare) & opponentSliders)) {
+                append_list(cons((epSquare + 1) | (pushSquare << 6) | 0x5000, NULL), &result, &tail);
+            }
+        }
+    }
+
+    return tail;
+}
+
 shortlist* get_all_moves(chessboard* board) {
     shortlist* moves = NULL;
     shortlist* tail = NULL;
@@ -964,39 +1040,33 @@ shortlist* get_all_moves(chessboard* board) {
     append_list(get_all_knight_moves(friendlyKnights, occupied, friendlyPieces, opponentPieces, pushMask | captureMask), &moves, &tail);
     append_list(get_all_pawn_pushes(friendlyPawns, occupied, pushMask, board->turn), &moves, &tail);
     append_list(get_all_pawn_captures(friendlyPawns, occupied, opponentPieces, captureMask, board->turn), &moves, &tail);
-
-    // en passant captures
-    if (board->epSquare > 0) {
-        uint64_t pawns = board->turn == White ? board->pieces[WhitePawn] : board->pieces[BlackPawn];
-        uint64_t leftPawn = pawns & (1LL << (board->epSquare - 1));
-        uint64_t rightPawn = pawns & (1LL << (board->epSquare + 1));
-        int pushSquare = board->epSquare + 8 - 16 * board->turn;
-        uint64_t push = ~occupied & (1LL < pushSquare);
-        if (leftPawn && push && ((leftPawn & captureMask) || (push & pushMask))) {
-            append_list(cons((board->epSquare - 1) | pushSquare | 0x5000, NULL), &moves, &tail);
-        }
-        if (rightPawn && push && ((rightPawn & captureMask) || (push & pushMask))) {
-            append_list(cons((board->epSquare + 1) | pushSquare | 0x5000, NULL), &moves, &tail);
-        }
-    }
+    uint64_t opponentSliders = board->turn == White ? (board->pieces[BlackRook] | board->pieces[BlackQueen]) : (board->pieces[WhiteRook] | board->pieces[WhiteQueen]);
+    append_list(get_all_pawn_en_passant(friendlyPawns, occupied, opponentSliders, pushMask, captureMask, kingSquare, board->epSquare, board->turn), &moves, &tail);
 
     return moves;
 }
 
 void make_capture(chessboard* board, short square) {
-    for (int i = board->turn; i < 12; i += 2) {
-        board->pieces[i] &= ~(1LL << square);
-    }
+    short capturedPiece = get_board_piece(board, square);
+    board->pieces[capturedPiece] &= ~(1LL << square);
+    board->captureLogTail->val = capturedPiece;
 }
 
 void make_move(chessboard* board, short move) {
     short startSquare = move & 0x3F;
-    int piece = get_board_piece(board, startSquare);
+    short piece = get_board_piece(board, startSquare);
     board->pieces[piece] &= ~(1LL << startSquare); // remove piece
     move >>= 6;
     short endSquare = move & 0x3F;
-    board->pieces[piece] |= 1LL << endSquare; // place piece
     move >>= 6;
+
+    board->epSquare = -1; // reset en passant target
+
+    // set log entries to default value
+    append_list(cons(-1, NULL), &board->captureLog, &board->captureLogTail); 
+    append_list(cons(board->castleKing[board->turn], NULL), &board->castleKingLog, &board->castleKingLogTail);
+    append_list(cons(board->castleQueen[board->turn], NULL), &board->castleQueenLog, &board->castleQueenLogTail);
+    append_list(cons(board->epSquare, NULL), &board->epLog, &board->epLogTail);
 
     // remove castling rights
     if (piece == White) {
@@ -1022,8 +1092,6 @@ void make_move(chessboard* board, short move) {
             board->castleKing[Black] = 0;
         }
     }
-
-    board->epSquare = -1; // reset en passant target
 
     // handle flag
     switch (move) {
@@ -1092,6 +1160,8 @@ void make_move(chessboard* board, short move) {
             make_capture(board, endSquare);
             board->pieces[board->turn == White ? WhiteQueen : BlackQueen] |= 1 << endSquare;
     }
+
+    board->pieces[piece] |= 1LL << endSquare; // place piece
 
     board->turn = 1 - board->turn; // change turn
 }
